@@ -107,7 +107,7 @@ const VaultExplorer = () => {
 
     // Derived Data for Filters
     const ALLOWED_ASSETS = ['DAI', 'EURC', 'USDC', 'USDT', 'USDe', 'USD₮0'];
-    const ALLOWED_CURATORS = ['Gauntlet', 'Felix', 'Steakhouse', 'SparkSentra', 'Spark'];
+    const ALLOWED_CURATORS = ['Gauntlet', 'Felix', 'Steakhouse', 'SparkSentra', 'Spark', 'Sentora'];
 
     const availableChains = Array.from(new Set(vaults.map(v => v.chain.network))).sort();
     const availableAssets = Array.from(new Set(vaults.map(v => v.asset.symbol)))
@@ -189,9 +189,12 @@ const VaultExplorer = () => {
             const matchesSearch = v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 v.asset.symbol.toLowerCase().includes(searchQuery.toLowerCase());
             const matchesChain = selectedChains.length === 0 || selectedChains.includes(v.chain.network);
-            const matchesAsset = selectedAssets.length === 0 || selectedAssets.includes(v.asset.symbol);
-            const matchesCurator = selectedCurators.length === 0 ||
-                selectedCurators.some(cur => v.name.toLowerCase().includes(cur.toLowerCase()));
+            const matchesAsset = selectedAssets.length === 0
+                ? ALLOWED_ASSETS.includes(v.asset.symbol)
+                : selectedAssets.includes(v.asset.symbol);
+            const matchesCurator = selectedCurators.length === 0
+                ? ALLOWED_CURATORS.some(cur => v.name.toLowerCase().includes(cur.toLowerCase()))
+                : selectedCurators.some(cur => v.name.toLowerCase().includes(cur.toLowerCase()));
 
             return matchesSearch && matchesChain && matchesAsset && matchesCurator;
         })
