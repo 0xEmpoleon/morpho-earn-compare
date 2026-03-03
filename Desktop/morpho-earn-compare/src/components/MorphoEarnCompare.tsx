@@ -43,11 +43,8 @@ interface TokenData {
     symbol: string;
     name: string;
     color: string;
+    chain: string; // Add Chain for the new column
     rates: Record<string, ProcessedVault>;
-}
-
-interface ChainData {
-    [chainName: string]: TokenData[];
 }
 
 const MORPHO_API_URL = 'https://api.morpho.org/graphql';
@@ -92,16 +89,11 @@ function formatTvl(usd: number): string {
 }
 
 function processVaultData(items: VaultItem[]) {
-    const chainMap: ChainData = {
-        Ethereum: [],
-        Base: [],
-        Hyperliquid: [],
-    };
-
+    const allRows: TokenData[] = [];
     const protocolsSet = new Set<string>();
 
     // Map network names from GraphQL to our UI names
-    const networkMapping: Record<string, keyof ChainData> = {
+    const networkMapping: Record<string, string> = {
         ethereum: 'Ethereum',
         base: 'Base',
         Hyperliquid: 'Hyperliquid',
@@ -156,6 +148,7 @@ function processVaultData(items: VaultItem[]) {
                 symbol,
                 name: info.name,
                 color: info.color,
+                chain: chainName,
                 rates: {},
             };
         }
@@ -172,7 +165,7 @@ function processVaultData(items: VaultItem[]) {
         }
     });
 
-    // Calculate highlights (highest APY for each token)
+    // Calculate highlights (highest APY for each token) and push to allRows
     Object.keys(intermediate).forEach((chain) => {
         Object.values(intermediate[chain]).forEach((token) => {
             let maxApyCurator = '';
@@ -190,7 +183,7 @@ function processVaultData(items: VaultItem[]) {
                 token.rates[maxApyCurator].highlight = true;
             }
 
-            chainMap[chain].push(token);
+            allRows.push(token);
         });
     });
 
@@ -200,21 +193,20 @@ function processVaultData(items: VaultItem[]) {
         .filter(c => protocolsSet.has(c))
         .map((p) => ({ id: p, name: p, sub: 'Vault' }));
 
-    return { chainMap, protocols: sortedProtocols };
+    // Sort all rows by chain, then symbol
+    allRows.sort((a, b) => {
+        if (a.chain !== b.chain) return a.chain.localeCompare(b.chain);
+        return a.symbol.localeCompare(b.symbol);
+    });
+
+    return { allRows, protocols: sortedProtocols };
 }
 
 const StablecoinDashboard = () => {
-    const [activeChain, setActiveChain] = useState<string>('Ethereum');
-    const [chainData, setChainData] = useState<ChainData>({
-        Ethereum: [],
-        Base: [],
-        Hyperliquid: [],
-    });
+    const [allData, setAllData] = useState<TokenData[]>([]);
     const [protocols, setProtocols] = useState<{ id: string; name: string; sub: string }[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-
-    const chains = ['Ethereum', 'Base', 'Hyperliquid'];
 
     useEffect(() => {
         const fetchData = async () => {
@@ -235,8 +227,8 @@ const StablecoinDashboard = () => {
                     throw new Error('Invalid GraphQL response');
                 }
 
-                const { chainMap, protocols: parsedProtocols } = processVaultData(json.data.vaults.items);
-                setChainData(chainMap);
+                const { allRows, protocols: parsedProtocols } = processVaultData(json.data.vaults.items);
+                setAllData(allRows);
                 setProtocols(parsedProtocols);
             } catch (err: any) {
                 console.error(err);
@@ -249,25 +241,21 @@ const StablecoinDashboard = () => {
         fetchData();
     }, []);
 
-    const currentData = chainData[activeChain] || [];
+    // Helper to get chain badge color
+    const getChainColor = (chain: string) => {
+        switch (chain) {
+            case 'Ethereum': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+            case 'Base': return 'bg-blue-100 text-blue-700 border-blue-200';
+            case 'Hyperliquid': return 'bg-teal-100 text-teal-700 border-teal-200';
+            default: return 'bg-gray-100 text-gray-700 border-gray-200';
+        }
+    };
 
     return (
         <div className="p-8 bg-white font-sans w-full rounded-xl shadow-sm border border-gray-100 min-h-[400px]">
-            {/* Chain Selector */}
-            <div className="flex items-center gap-2 mb-6 border-b border-gray-100 pb-4">
-                <span className="text-sm font-bold text-gray-500 mr-2 uppercase tracking-wide">Network</span>
-                {chains.map((chain) => (
-                    <button
-                        key={chain}
-                        onClick={() => setActiveChain(chain)}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${activeChain === chain
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm'
-                            : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
-                            }`}
-                    >
-                        {chain}
-                    </button>
-                ))}
+            <div className="mb-6 border-b border-gray-100 pb-4">
+                <h2 className="text-xl font-extrabold text-slate-800">Morpho Earn Vaults</h2>
+                <p className="text-sm text-slate-500 mt-1">Comparing top curators across Ethereum, Base, and Hyperliquid</p>
             </div>
 
             {loading ? (
@@ -282,8 +270,11 @@ const StablecoinDashboard = () => {
                     <table className="w-full border-separate border-spacing-y-4">
                         <thead>
                             <tr>
-                                <th className="text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider p-4 border-b border-gray-100">
+                                <th className="text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider p-4 border-b border-gray-100 min-w-[150px]">
                                     Token
+                                </th>
+                                <th className="text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider p-4 border-b border-gray-100 min-w-[100px]">
+                                    Chain
                                 </th>
                                 {protocols.map((p) => (
                                     <th key={p.id} className="text-center p-3 min-w-[130px] border-b border-gray-100">
@@ -300,8 +291,8 @@ const StablecoinDashboard = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                            {currentData.map((token) => (
-                                <tr key={token.symbol} className="group transition-colors">
+                            {allData.map((token, idx) => (
+                                <tr key={`${token.chain}-${token.symbol}-${idx}`} className="group transition-colors">
                                     <td className="py-4 px-2 border-b border-gray-100">
                                         <div className="flex items-center gap-3 min-w-[120px]">
                                             <div
@@ -316,10 +307,16 @@ const StablecoinDashboard = () => {
                                         </div>
                                     </td>
 
+                                    <td className="py-4 px-2 border-b border-gray-100 align-middle">
+                                        <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${getChainColor(token.chain)}`}>
+                                            {token.chain}
+                                        </span>
+                                    </td>
+
                                     {protocols.map((p) => {
                                         const data = token.rates[p.id];
                                         return (
-                                            <td key={p.id} className="p-2 border-b border-gray-100">
+                                            <td key={p.id} className="py-2 border-b border-gray-100">
                                                 {data ? (
                                                     <div
                                                         className={`flex flex-col items-center justify-center py-2 px-1 rounded-md transition-all cursor-pointer border
@@ -347,11 +344,10 @@ const StablecoinDashboard = () => {
                                 </tr>
                             ))}
 
-                            {/* Empty State if no tokens for a chain */}
-                            {currentData.length === 0 && (
+                            {allData.length === 0 && (
                                 <tr>
-                                    <td colSpan={protocols.length + 1} className="py-12 text-center text-gray-500 font-medium">
-                                        No active vault data available for {activeChain}.
+                                    <td colSpan={protocols.length + 2} className="py-12 text-center text-gray-500 font-medium">
+                                        No active vault data available.
                                     </td>
                                 </tr>
                             )}
