@@ -94,12 +94,39 @@ const VaultExplorer = () => {
     const [walletAddress, setWalletAddress] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
 
-    const [sortBy, setSortBy] = useState<'name' | 'amount'>('amount');
+    // Filter States
+    const [selectedChains, setSelectedChains] = useState<string[]>([]);
+    const [selectedCurators, setSelectedCurators] = useState<string[]>([]);
+    const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
+
+    // Sort States
+    const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'totalAssetsUsd' | 'liquidity' | 'netApy', direction: 'asc' | 'desc' }>({
+        key: 'totalAssetsUsd',
+        direction: 'desc'
+    });
+
+    // Derived Data for Filters
+    const availableChains = Array.from(new Set(vaults.map(v => v.chain.network))).sort();
+    const availableAssets = Array.from(new Set(vaults.map(v => v.asset.symbol))).sort();
+    const availableCurators = Array.from(new Set(vaults.map(v => v.name.split(' ')[0]))).sort();
+
+    const toggleFilter = (list: string[], setList: React.Dispatch<React.SetStateAction<string[]>>, value: string) => {
+        setList(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+    };
+
+    const handleSort = (key: 'name' | 'totalAssetsUsd' | 'liquidity' | 'netApy') => {
+        setSortConfig(prev => ({
+            key,
+            direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+        }));
+    };
+
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
     // Fetch Vaults
-    const fetchVaults = async () => {
+    const fetchVaults = async (isRefresh = false) => {
         try {
-            setLoading(true);
+            if (!isRefresh) setLoading(true);
             const res = await fetch(MORPHO_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -111,10 +138,11 @@ const VaultExplorer = () => {
             const json = await res.json();
             if (json.errors) throw new Error(json.errors[0].message);
             setVaults(json.data.vaults.items);
+            setLastUpdated(new Date());
         } catch (err: any) {
             setError(err.message);
         } finally {
-            setLoading(false);
+            if (!isRefresh) setLoading(false);
         }
     };
 
@@ -143,25 +171,52 @@ const VaultExplorer = () => {
 
     useEffect(() => {
         fetchVaults();
+        const interval = setInterval(() => fetchVaults(true), 60000);
+        return () => clearInterval(interval);
     }, []);
 
     const filteredVaults = vaults
-        .filter(v =>
-            v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            v.asset.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-        )
+        .filter(v => {
+            const matchesSearch = v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                v.asset.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesChain = selectedChains.length === 0 || selectedChains.includes(v.chain.network);
+            const matchesAsset = selectedAssets.length === 0 || selectedAssets.includes(v.asset.symbol);
+            const matchesCurator = selectedCurators.length === 0 || selectedCurators.includes(v.name.split(' ')[0]);
+
+            return matchesSearch && matchesChain && matchesAsset && matchesCurator;
+        })
         .sort((a, b) => {
-            if (sortBy === 'name') {
-                return a.name.localeCompare(b.name);
+            let valA: any;
+            let valB: any;
+
+            if (sortConfig.key === 'name') {
+                valA = a.name;
+                valB = b.name;
+            } else if (sortConfig.key === 'liquidity') {
+                valA = a.liquidity.usd;
+                valB = b.liquidity.usd;
+            } else if (sortConfig.key === 'netApy') {
+                valA = a.state.netApy;
+                valB = b.state.netApy;
             } else {
-                return (b.state.totalAssetsUsd || 0) - (a.state.totalAssetsUsd || 0);
+                valA = a.state.totalAssetsUsd;
+                valB = b.state.totalAssetsUsd;
             }
+
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
         });
+
+    const SortIcon = ({ column }: { column: typeof sortConfig.key }) => {
+        if (sortConfig.key !== column) return <span className="ml-1 opacity-20">⇅</span>;
+        return <span className="ml-1 text-blue-500">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+    };
 
     return (
         <div className="min-h-screen bg-[#0a0c0f] text-gray-300 font-sans p-6">
-            {/* Top Navigation */}
             <div className="max-w-7xl mx-auto">
+                {/* Top Navigation */}
                 <div className="flex items-center justify-between mb-8 border-b border-gray-800 pb-2">
                     <div className="flex gap-8">
                         <button
@@ -181,49 +236,94 @@ const VaultExplorer = () => {
                     </div>
                 </div>
 
-                {/* Sub-Header / Filters */}
-                <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2">
-                            <div className="w-8 h-4 bg-blue-600 rounded-full relative cursor-pointer">
-                                <div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full shadow-sm" />
+                {/* Sub-Header / Complex Filters */}
+                <div className="flex flex-col gap-6 mb-8">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2 mr-4">
+                                <div className="w-8 h-4 bg-blue-600 rounded-full relative cursor-pointer">
+                                    <div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full shadow-sm" />
+                                </div>
+                                <span className="text-[12px] font-bold text-white uppercase tracking-wider">V2</span>
                             </div>
-                            <span className="text-[12px] font-bold text-white uppercase tracking-wider">V2</span>
+
+                            <div className="flex-1 max-w-md relative">
+                                <input
+                                    type="text"
+                                    placeholder="Filter vaults"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-[#15191e] border border-gray-800 rounded-lg py-2 px-10 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                                />
+                                <div className="absolute left-3 top-2.5 text-gray-500">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                </div>
+                            </div>
                         </div>
 
-                        {/* Sort Toggle */}
-                        <div className="flex items-center bg-[#15191e] rounded-lg p-1 border border-gray-800">
+                        <div className="flex items-center gap-4">
+                            {lastUpdated && (
+                                <span className="text-[10px] text-gray-600 font-medium whitespace-nowrap">
+                                    Last update: {lastUpdated.toLocaleTimeString()}
+                                </span>
+                            )}
                             <button
-                                onClick={() => setSortBy('amount')}
-                                className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${sortBy === 'amount' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-400'}`}
+                                onClick={() => { setSelectedChains([]); setSelectedAssets([]); setSelectedCurators([]); setSearchQuery(''); }}
+                                className="text-[11px] font-bold uppercase text-gray-500 hover:text-white transition-colors px-3"
                             >
-                                Amount
+                                Reset Filters
                             </button>
-                            <button
-                                onClick={() => setSortBy('name')}
-                                className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${sortBy === 'name' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-400'}`}
-                            >
-                                A-Z
-                            </button>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                            <div className="bg-gray-800 p-1.5 rounded-md cursor-pointer hover:bg-gray-700">
-                                <span className="text-[12px] font-bold uppercase">Filter</span>
-                            </div>
                         </div>
                     </div>
 
-                    <div className="flex-1 max-w-md relative">
-                        <input
-                            type="text"
-                            placeholder="Filter vaults"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full bg-[#15191e] border border-gray-800 rounded-lg py-2 px-10 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                        />
-                        <div className="absolute left-3 top-2.5 text-gray-500">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    {/* Multi-select filter groups */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-[#111419] p-5 rounded-xl border border-gray-800/50">
+                        {/* Chain Filter */}
+                        <div>
+                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-3">Chains</span>
+                            <div className="flex flex-wrap gap-2">
+                                {availableChains.map(chain => (
+                                    <button
+                                        key={chain}
+                                        onClick={() => toggleFilter(selectedChains, setSelectedChains, chain)}
+                                        className={`px-3 py-1.5 rounded-md text-[11px] font-bold border transition-all ${selectedChains.includes(chain) ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black/20 border-gray-800 text-gray-500 hover:border-gray-600'}`}
+                                    >
+                                        {chain}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Assets Filter */}
+                        <div>
+                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-3">Assets</span>
+                            <div className="flex flex-wrap gap-2">
+                                {availableAssets.map(asset => (
+                                    <button
+                                        key={asset}
+                                        onClick={() => toggleFilter(selectedAssets, setSelectedAssets, asset)}
+                                        className={`px-3 py-1.5 rounded-md text-[11px] font-bold border transition-all ${selectedAssets.includes(asset) ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-black/20 border-gray-800 text-gray-500 hover:border-gray-600'}`}
+                                    >
+                                        {asset}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Curators Filter */}
+                        <div>
+                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-3">Curators</span>
+                            <div className="flex flex-wrap gap-2">
+                                {availableCurators.map(curator => (
+                                    <button
+                                        key={curator}
+                                        onClick={() => toggleFilter(selectedCurators, setSelectedCurators, curator)}
+                                        className={`px-3 py-1.5 rounded-md text-[11px] font-bold border transition-all ${selectedCurators.includes(curator) ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-black/20 border-gray-800 text-gray-500 hover:border-gray-600'}`}
+                                    >
+                                        {curator}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -262,12 +362,21 @@ const VaultExplorer = () => {
                         <table className="w-full text-left border-separate border-spacing-y-2">
                             <thead>
                                 <tr className="text-[11px] font-bold text-gray-500 uppercase tracking-widest px-4">
-                                    <th className="pb-4 pl-4">Vault</th>
-                                    <th className="pb-4">Deposits</th>
-                                    <th className="pb-4">Liquidity</th>
+                                    <th className="pb-4 pl-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('name')}>
+                                        Vault <SortIcon column="name" />
+                                    </th>
+                                    <th className="pb-4">Chain</th>
+                                    <th className="pb-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('totalAssetsUsd')}>
+                                        Deposits <SortIcon column="totalAssetsUsd" />
+                                    </th>
+                                    <th className="pb-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('liquidity')}>
+                                        Liquidity <SortIcon column="liquidity" />
+                                    </th>
                                     <th className="pb-4">Curator</th>
                                     <th className="pb-4">Exposure</th>
-                                    <th className="pb-4 text-right pr-4">APY</th>
+                                    <th className="pb-4 text-right pr-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort('netApy')}>
+                                        APY <SortIcon column="netApy" />
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -280,15 +389,15 @@ const VaultExplorer = () => {
                                                         {vault.asset.symbol[0]}
                                                     </div>
                                                     <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-sm font-bold text-white">{vault.name}</span>
-                                                            <span className={`text-[9px] px-1.5 py-0.5 rounded border uppercase font-extrabold ${getChainBadge(vault.chain.network)}`}>
-                                                                {vault.chain.network}
-                                                            </span>
-                                                        </div>
+                                                        <span className="text-sm font-bold text-white block">{vault.name}</span>
                                                         <div className="text-[11px] text-gray-500 font-medium mt-0.5">{vault.symbol}</div>
                                                     </div>
                                                 </div>
+                                            </td>
+                                            <td className="py-5">
+                                                <span className={`text-[9px] px-2 py-0.5 rounded border uppercase font-extrabold ${getChainBadge(vault.chain.network)}`}>
+                                                    {vault.chain.network}
+                                                </span>
                                             </td>
                                             <td className="py-5">
                                                 <div className="flex flex-col">
@@ -342,14 +451,14 @@ const VaultExplorer = () => {
                                                         {pos.vault.asset.symbol[0]}
                                                     </div>
                                                     <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-sm font-bold text-white">{pos.vault.name}</span>
-                                                            <span className={`text-[9px] px-1.5 py-0.5 rounded border uppercase font-extrabold ${getChainBadge(pos.vault.chain.network)}`}>
-                                                                {pos.vault.chain.network}
-                                                            </span>
-                                                        </div>
+                                                        <span className="text-sm font-bold text-white block">{pos.vault.name}</span>
                                                     </div>
                                                 </div>
+                                            </td>
+                                            <td className="py-5">
+                                                <span className={`text-[9px] px-2 py-0.5 rounded border uppercase font-extrabold ${getChainBadge(pos.vault.chain.network)}`}>
+                                                    {pos.vault.chain.network}
+                                                </span>
                                             </td>
                                             <td className="py-5">
                                                 <div className="flex flex-col">
@@ -379,7 +488,7 @@ const VaultExplorer = () => {
 
                                 {!loading && view === 'positions' && userPositions.length === 0 && walletAddress && (
                                     <tr>
-                                        <td colSpan={6} className="py-10 text-center text-gray-500 text-sm italic">
+                                        <td colSpan={7} className="py-10 text-center text-gray-500 text-sm italic">
                                             No active Morpho positions found for this address.
                                         </td>
                                     </tr>
