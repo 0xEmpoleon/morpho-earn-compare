@@ -122,12 +122,28 @@ function processVaultData(items: VaultItem[]) {
         const chainName = networkMapping[item.chain.network];
         if (!chainName) return;
 
-        const symbol = item.asset.symbol;
+        let symbol = item.asset.symbol;
         const nameStr = item.name.trim();
         if (!nameStr) return;
 
-        // Use the first word of the vault name as the "Protocol/Curator"
-        const curator = nameStr.split(' ')[0];
+        // Normalize specific symbols
+        if (symbol === 'USD₮0') symbol = 'USDT';
+
+        // Identify the curator based on the first word of the vault name
+        const firstWord = nameStr.split(' ')[0];
+
+        // Map to exact requested names
+        const curatorMapping: Record<string, string> = {
+            Gauntlet: 'Gauntlet',
+            Steakhouse: 'Steakhouse',
+            Sentora: 'Sentora',
+            Sky: 'Sky Money',
+            Felix: 'Felix'
+        };
+
+        const curator = curatorMapping[firstWord];
+        if (!curator) return; // Skip if it's not one of the 5 requested curators
+
         protocolsSet.add(curator);
 
         const tvlRaw = item.state.totalAssetsUsd;
@@ -178,9 +194,10 @@ function processVaultData(items: VaultItem[]) {
         });
     });
 
-    // Sort protocols by string alphabetically for consistent columns
-    const sortedProtocols = Array.from(protocolsSet)
-        .sort()
+    // We can enforce the specific column order the user requested:
+    const orderedCurators = ['Gauntlet', 'Steakhouse', 'Sentora', 'Sky Money', 'Felix'];
+    const sortedProtocols = orderedCurators
+        .filter(c => protocolsSet.has(c))
         .map((p) => ({ id: p, name: p, sub: 'Vault' }));
 
     return { chainMap, protocols: sortedProtocols };
@@ -244,8 +261,8 @@ const StablecoinDashboard = () => {
                         key={chain}
                         onClick={() => setActiveChain(chain)}
                         className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${activeChain === chain
-                                ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm'
-                                : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm'
+                            : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
                             }`}
                     >
                         {chain}
