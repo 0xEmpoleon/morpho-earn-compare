@@ -51,14 +51,18 @@ interface UserPosition {
 
 // --- Helpers ---
 
-const formatUsd = (val: number) => {
+const formatUsd = (val: number | null | undefined) => {
+    if (val === null || val === undefined) return '0.00';
     if (val >= 1e9) return (val / 1e9).toFixed(2) + 'B';
     if (val >= 1e6) return (val / 1e6).toFixed(2) + 'M';
     if (val >= 1e3) return (val / 1e3).toFixed(2) + 'K';
     return val.toFixed(2);
 };
 
-const formatPercent = (val: number) => (val * 100).toFixed(2) + '%';
+const formatPercent = (val: number | null | undefined) => {
+    if (val === null || val === undefined) return '0.00%';
+    return (val * 100).toFixed(2) + '%';
+};
 
 const getChainBadge = (network: string) => {
     const net = network.toLowerCase();
@@ -89,6 +93,8 @@ const VaultExplorer = () => {
     const [error, setError] = useState('');
     const [walletAddress, setWalletAddress] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
+
+    const [sortBy, setSortBy] = useState<'name' | 'amount'>('amount');
 
     // Fetch Vaults
     const fetchVaults = async () => {
@@ -139,10 +145,18 @@ const VaultExplorer = () => {
         fetchVaults();
     }, []);
 
-    const filteredVaults = vaults.filter(v =>
-        v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        v.asset.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredVaults = vaults
+        .filter(v =>
+            v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            v.asset.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .sort((a, b) => {
+            if (sortBy === 'name') {
+                return a.name.localeCompare(b.name);
+            } else {
+                return (b.state.totalAssetsUsd || 0) - (a.state.totalAssetsUsd || 0);
+            }
+        });
 
     return (
         <div className="min-h-screen bg-[#0a0c0f] text-gray-300 font-sans p-6">
@@ -172,10 +186,27 @@ const VaultExplorer = () => {
                     <div className="flex items-center gap-6">
                         <div className="flex items-center gap-2">
                             <div className="w-8 h-4 bg-blue-600 rounded-full relative cursor-pointer">
-                                <div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-fullShadow shadow-sm" />
+                                <div className="absolute right-0.5 top-0.5 w-3 h-3 bg-white rounded-full shadow-sm" />
                             </div>
                             <span className="text-[12px] font-bold text-white uppercase tracking-wider">V2</span>
                         </div>
+
+                        {/* Sort Toggle */}
+                        <div className="flex items-center bg-[#15191e] rounded-lg p-1 border border-gray-800">
+                            <button
+                                onClick={() => setSortBy('amount')}
+                                className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${sortBy === 'amount' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-400'}`}
+                            >
+                                Amount
+                            </button>
+                            <button
+                                onClick={() => setSortBy('name')}
+                                className={`px-3 py-1 text-[10px] font-bold uppercase rounded-md transition-all ${sortBy === 'name' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-400'}`}
+                            >
+                                A-Z
+                            </button>
+                        </div>
+
                         <div className="flex items-center gap-2">
                             <div className="bg-gray-800 p-1.5 rounded-md cursor-pointer hover:bg-gray-700">
                                 <span className="text-[12px] font-bold uppercase">Filter</span>
@@ -333,7 +364,7 @@ const VaultExplorer = () => {
                                                 </div>
                                             </td>
                                             <td className="py-5">
-                                                <span className="text-xs font-bold text-gray-400">{pos.state.roe.toFixed(2)}% ROE</span>
+                                                <span className="text-xs font-bold text-gray-400">{(pos.state.roe || 0).toFixed(2)}% ROE</span>
                                             </td>
                                             <td className="py-5" />
                                             <td className="py-5 pr-4 text-right rounded-r-xl">
