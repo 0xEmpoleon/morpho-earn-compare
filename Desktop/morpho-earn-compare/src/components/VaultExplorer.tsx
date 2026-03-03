@@ -106,9 +106,18 @@ const VaultExplorer = () => {
     });
 
     // Derived Data for Filters
+    const ALLOWED_ASSETS = ['DAI', 'EURC', 'USDC', 'USDT', 'USDe', 'USD₮0'];
+    const ALLOWED_CURATORS = ['Gauntlet', 'Felix', 'Steakhouse', 'SparkSentra', 'Spark'];
+
     const availableChains = Array.from(new Set(vaults.map(v => v.chain.network))).sort();
-    const availableAssets = Array.from(new Set(vaults.map(v => v.asset.symbol))).sort();
-    const availableCurators = Array.from(new Set(vaults.map(v => v.name.split(' ')[0]))).sort();
+    const availableAssets = Array.from(new Set(vaults.map(v => v.asset.symbol)))
+        .filter(symbol => ALLOWED_ASSETS.includes(symbol))
+        .sort();
+
+    // We only show curators that actually exist in the vault list or match the whitelist
+    const availableCurators = ALLOWED_CURATORS.filter(cur =>
+        vaults.some(v => v.name.toLowerCase().includes(cur.toLowerCase()))
+    ).sort();
 
     const toggleFilter = (list: string[], setList: React.Dispatch<React.SetStateAction<string[]>>, value: string) => {
         setList(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
@@ -181,7 +190,8 @@ const VaultExplorer = () => {
                 v.asset.symbol.toLowerCase().includes(searchQuery.toLowerCase());
             const matchesChain = selectedChains.length === 0 || selectedChains.includes(v.chain.network);
             const matchesAsset = selectedAssets.length === 0 || selectedAssets.includes(v.asset.symbol);
-            const matchesCurator = selectedCurators.length === 0 || selectedCurators.includes(v.name.split(' ')[0]);
+            const matchesCurator = selectedCurators.length === 0 ||
+                selectedCurators.some(cur => v.name.toLowerCase().includes(cur.toLowerCase()));
 
             return matchesSearch && matchesChain && matchesAsset && matchesCurator;
         })
@@ -288,7 +298,7 @@ const VaultExplorer = () => {
                                         onClick={() => toggleFilter(selectedChains, setSelectedChains, chain)}
                                         className={`px-3 py-1.5 rounded-md text-[11px] font-bold border transition-all ${selectedChains.includes(chain) ? 'bg-blue-600 border-blue-500 text-white' : 'bg-black/20 border-gray-800 text-gray-500 hover:border-gray-600'}`}
                                     >
-                                        {chain}
+                                        {chain.charAt(0).toUpperCase() + chain.slice(1)}
                                     </button>
                                 ))}
                             </div>
@@ -498,7 +508,7 @@ const VaultExplorer = () => {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 };
 
